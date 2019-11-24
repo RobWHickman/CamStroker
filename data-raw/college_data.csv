@@ -1,0 +1,35 @@
+"college","short_name","club_code","club_name","col1","col2"
+"Addenbrooke's Hospital","Addenbrooke","AD","","#000000","#000000"
+"Gonville and Caius College","Caius","CAI","CBC","#202020","#95E3C9"
+"St Catherine's College","Catz","SCC","SCCBC","#5D0725","#FFFFFF"
+"Christ's College","Christs","CCO","CCBC","#00214E","#FFFFFF"
+"Churchill College","Churchill","CHU","CCBC","#FF70A0",NA
+"Clare College","Clare","CLA","CBC","#FFCC00",NA
+"Clare Hall","ClareHall","CLH","CHBC","#FFCC00","#D40000"
+"Corpus College","Corpus","COR","CCCBC","#8E0000","#FFFFFF"
+"Darwin College","Darwin","DAW","DCBC","#000080","#E0000F"
+"Downing College","Downing","DOW","DCBC","#AB0F62",NA
+"St Edmund's College","Eddies","ED","SECBC","#0067CB","#009AFF"
+"Emmanuel College","Emma","EMM","EBC","#000077","#FF7777"
+"Trinity College","FaT","FTT","FaTBC","#000044",NA
+"Fitzwilliam College","Fitz","FIT","FCBC","#D3D3D3",NA
+"Girton College","Girton","GIR","GCBC","#004600","#FF0000"
+"Homerton College","Homerton","HOM","HCBC","#F9F9F9","#000000"
+"Hughes Hall","HughesHall","HUH","HHBC","#FFFFFF","#000080"
+"Hughes Hall/Lucy Cavendish College","HughesHall/LucyCav","HUH/LC","HH/LCCBC","#FFFFFF","#000080"
+"Jesus College","Jesus","JEC","JCBC","#202020","#8B0000"
+"King's College","Kings","KCB","KCBC","#800080",NA
+"Lucy Cavendish College","LucyCav","LC","LCCBC","#2A57A1","#000000"
+"Magdalene College","Magdalene","MGD","MBC","#8D00CD","#0018B2"
+"St John's College","Maggie","LMB","LMBC","#DF0000",NA
+"Murray Edwards College","Medwards","MEC","MECBC","#F5F5F5",NA
+"Newnham College","Newnham","NNM","NCBC","#000066","#FFD700"
+"Pembroke College","Pembroke","PEM","PCBC","#AAF0FF","#000066"
+"Peterhouse College","Peterhouse","PBC","PBC","#0000CC","#FFFFFF"
+"Queen's College","Queens","QCC","QCBC","#006400","#FFFFFF"
+"Robinson College","Robinson","ROC","RCBC","#0099FF","#FFD700"
+"Anglia Ruskin University","Ruskin","CCA","ARBC","#000000","#FFA500"
+"Selwyn College","Selwyn","SEL","SCBC","#CC0000","#CC9900"
+"Sidney Sussex College","Sidney","SID","SSBC","#000066","#FF0000"
+"Trinity Hall","TitHall","TRH","THBC","#202020",NA
+"Wolfson College","Wolfson","WOC","WCBC","#0000FF","#FFFF00"

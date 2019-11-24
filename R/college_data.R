@@ -8,5 +8,7 @@
 #'   \item{short_name}{The abbreviated name of the college}
 #'   \item{club_code}{The code for the colleges boats}
 #'   \item{club_name}{The abbreviated name of the college boat club}
+#'   \item{col1}{The primary colour of the boat club}
+#'   \item{col2}{The secondary colour of the boat club}
 #' }
 "college_data"
