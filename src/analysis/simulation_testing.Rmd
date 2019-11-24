@@ -1,0 +1,164 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r libraries, warning=FALSE,message=FALSE}
+library(tidyverse)
+library(magrittr)
+library(data.table)
+library(GGally)
+library(ggrepel)
+library(ggridges)
+library(MASS)
+library(Bolstad)
+
+rm(list=ls())
+```
+
+```{r sim_func, warning=FALSE,message=FALSE}
+run_div <- function(division_data, sim){
+  division_data$sample_speed <-  mapply(mean = division_data$speed,
+                                        sd= division_data$sd,
+                                        rnorm, MoreArgs = list(n = 1))
+  
+  #get a list of the division boats
+  div_boats <- division_data %>%
+    dplyr::select(startpos, college, gender, crew)
+
+  #work out which boats might bump or not
+  bumps <- division_data %>%
+    setDT() %>%
+    .[, b_time := bump_distance / (sample_speed - lag(sample_speed))] %>%
+    .[, b_target_f := (lag(finish_distance) / lag(sample_speed))] %>%
+    .[, ob_time := bump_distance / (sample_speed - lag(sample_speed,3))] %>%
+    .[, ob_target_f := (lag(finish_distance,3) / lag(sample_speed,3))] %>%
+    .[(b_time > 0 & b_time < b_target_f), pos_b := 1] %>%
+    .[(ob_time > 0 & ob_time < ob_target_f), pos_ob := 3] %>%
+    .[, c("startpos", "college", "pos_b", "pos_ob", "b_time", "ob_time")]
+  
+  #melt the possible_bumps
+  possible_bumps <- bumps %>%
+    melt.data.table(id.vars = c("startpos", "college", "b_time", "ob_time"),
+                    value.name = "magnitude", variable.name = "bump_type") %>%
+    .[!is.na(magnitude)] %>%
+    .[magnitude == 1, bump_time := b_time] %>%
+    .[magnitude == 3, bump_time := ob_time] %>%
+    .[order(bump_type, bump_time)]
+  
+  for(possible_bump in seq(nrow(possible_bumps))) {
+    bump_startpos <- possible_bumps$startpos[possible_bump]
+    magnitude <- possible_bumps$magnitude[possible_bump]
+    
+    if(all(c(bump_startpos, bump_startpos - magnitude) %in% div_boats$startpos)) {
+      if(!exists("bumps_df")) {
+        bumps_df <- div_boats[which(div_boats$startpos %in% c(bump_startpos, bump_startpos - magnitude)),] %>%
+          mutate(bump = c(-magnitude, magnitude))
+      } else {
+        bumps_df %<>% rbind(div_boats[which(div_boats$startpos %in% c(bump_startpos, bump_startpos - magnitude)),] %>%
+                              mutate(bump = c(-magnitude, magnitude)))
+      }
+      div_boats %<>% .[-which(.$startpos %in% c(bump_startpos, bump_startpos - magnitude)),]
+    }
+  }
+
+  division_results <- 
+    rbind(bumps_df,
+          div_boats %>%
+            mutate(bump = 0)) %>%
+    arrange(startpos) %>%
+    mutate(sim = sim)
+
+  return(division_results)
+}
+
+```
+
+```{r bumps_speeds_data}
+bumps_2019 <- readRDS("../bumps_2019_data.rds") %>%
+  dplyr::select(startpos, college, crew, gender, speed = post_speed, sd = post_sd) %>%
+  mutate(day = 0, movement = NA)
+
+```
+
+```{r}
+head_length <- 2000
+boat_length <- 20
+
+run_bumps_day <- function(bumps_data, bumps_day, sims) {
+  start_order <- bumps_data %>%
+    filter(day == (bumps_day - 1)) %>%
+    arrange(startpos)
+    
+  #init current position for day 1
+  start_order$curr_pos <- start_order$startpos
+  
+  for(div in 2:1) {
+    #get the correct boats for the division
+    river_positions <- (17*(div-1) + 1):((17*div)+1)
+    
+    div_data <- start_order %>%
+      filter(curr_pos %in% river_positions) %>%
+      mutate(finish_distance = head_length + 0:17*2.5*boat_length) %>%
+      mutate(bump_distance = finish_distance - lag(finish_distance) - boat_length,
+         overbump_distance = finish_distance - lag(finish_distance, 3) - boat_length)
+    
+    simulations <- 1:sims %>%
+      map(run_div, division_data = div_data) %>%
+      map(function(x) paste0(x$bump, collapse = ",")) %>%
+      unlist()
+    
+    modal_sim <- simulations %>%
+      table() %>%
+      which.max() %>%
+      names() %>%
+      strsplit(., ",") %>%
+      unlist() %>%
+      as.numeric()
+    
+    div_data$bumps <- modal_sim
+    
+    start_order %<>% left_join(., 
+                           dplyr::select(div_data, startpos, bumps),
+                           by = "startpos") %>%
+      mutate(curr_pos = ifelse(is.na(bumps), curr_pos, curr_pos - bumps)) %>%
+      mutate(bumps = NULL)
+  }
+  
+  finish_order <- start_order %>%
+    mutate(day = bumps_day,
+           movement = startpos - curr_pos) %>%
+    dplyr::select(startpos = curr_pos, college, crew, gender, speed, sd, day, movement)
+}
+
+run_bumps_campagin <- function(data, sims) {
+  new_day_added <- data %>%
+    rbind(., run_bumps_day(., 1, sims)) %>%
+    rbind(., run_bumps_day(., 2, sims)) %>%
+    rbind(., run_bumps_day(., 3, sims)) %>%
+    rbind(., run_bumps_day(., 4, sims))
+}
+
+
+```
+
+```{r}
+predicted_bumps_results <- bumps_2019 %>%
+  split(., f = .$gender) %>%
+  lapply(., run_bumps_campagin, sims = 10) %>%
+  rbindlist() %>%
+  filter(!is.na(movement)) %>%
+  mutate(day_start_pos = startpos + movement) %>%
+  dplyr::select(day_start_pos, day_end_pos = startpos, college, crew, gender, day, movement)
+
+darwin <- predicted_bumps_results %>%
+  .[c(which(.$college == "Darwin"),
+      which(.$college == "Darwin") + 1,
+      which(.$college == "Darwin") - 1),]
+
+finish <- predicted_bumps_results %>%
+  filter(day == 4) %>%
+  dplyr::select(college, crew, gender, finish_pos = day_end_pos) %>%
+  arrange(gender, finish_pos)
+```
+

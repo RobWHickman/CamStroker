@@ -1,0 +1,200 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r libraries, warning=FALSE,message=FALSE}
+library(tidyverse)
+library(data.table)
+library(GGally)
+library(ggrepel)
+library(MASS)
+rm(list=ls())
+```
+
+
+```{r load_data, warning=FALSE,message=FALSE}
+calc_paul <- function(result, result_type, distance) {
+  if(result_type == "seconds") {
+    race_split <- 500 / (distance / result)
+  } else if(result_type == "speed") {
+    race_split <- 500 / result
+  } else {
+    warning("result type not recognised")
+  }
+  
+  more_secs <- (log(distance/2000)/log(2)) * 5
+  split_2k <- race_split - more_secs
+  speed_2k <- 500 / split_2k
+  return(speed_2k)
+}
+
+```
+
+```{r munging_results, warning=FALSE,message=FALSE}
+cam_results <- readRDS("../data/clean_results/cam_race_results.rds") %>%
+  setDT() %>%
+  .[, paul_speed := calc_paul(seconds, "seconds", distance)] %>%
+  .[!is.na(leg), race := paste(race, leg)] %>%
+  .[, norm_ps := paul_speed / max(paul_speed), by = c("year", "gender", "race", "leg")]
+
+bumps_data <- read.csv("../data/bumps.csv",
+                       stringsAsFactors = FALSE) %>%
+  rename_all(tolower) %>%
+  dplyr::select(year, college, crew, gender, startpos) %>%
+  setDT() %>%
+  .[is.na(crew), crew := 1] %>%
+  left_join(., cam_results, by = c("year", "college", "crew", "gender")) %>%
+  filter(!is.na(norm_ps))
+
+models <- bumps_data %>%
+  dplyr::select(startpos, norm_ps, race, year, gender) %>%
+  split(., f = list(.$race, .$year, .$gender)) %>%
+  .[sapply(., nrow)>0] %>%
+  lapply(., function(race_data) {
+    model <- lm(norm_ps ~ startpos, data = race_data)
+    fastest_crew_pred <- stats::predict.lm(model, newdata = data.frame(startpos = 1))
+    df <- data.frame(race = unique(race_data$race),
+                     year = unique(race_data$year),
+                     gender = unique(race_data$gender),
+                     multiplier = fastest_crew_pred)
+  }) %>%
+  do.call(rbind, .)
+
+bumps_data <- bumps_data %>%
+  left_join(., models, by = c("race", "year", "gender")) %>%
+  mutate(racenorm_ps = norm_ps / multiplier)
+
+p1 <- bumps_data %>%
+  filter(startpos < 34) %>%
+  ggplot(data = ., aes(x = startpos, y = racenorm_ps, colour = race)) +
+  geom_point(alpha = 0.5) +
+  stat_smooth(method = "lm") +
+  #facet_grid(year ~ gender)
+  facet_wrap(~gender)
+
+p2 <- bumps_data %>%
+  filter(startpos < 34) %>%
+  ggplot(data = ., aes(x = startpos, y = racenorm_ps)) +
+  geom_point(alpha = 0.5) +
+  stat_smooth(method = "lm") +
+  facet_wrap(~gender)
+
+
+```
+
+
+```{r get_speed_baselines, warning=FAlSE,message=FALSE}
+head_length <- 2000
+boat_length <- 20
+
+model <- bumps_data %>%
+  filter(startpos < 34 & year < 2019) %>%
+  split(., f = .$gender) %>%
+  lapply(., function(gender_data) {
+    model <- lm(data = gender_data, racenorm_ps ~ startpos)
+    starting_position <- data.frame(startpos = 1:34)
+    
+    predicted_speed <- stats::predict.lm(model, newdata = starting_position, se.fit = TRUE)$fit
+    predicted_sd = sd(model$residuals)
+    
+    df <- starting_position %>%
+      mutate(speed = predicted_speed,
+             sd = predicted_sd,
+             gender = unique(gender_data$gender))
+  }) %>%
+  do.call(rbind, .) %>%
+  mutate(finish_distance = head_length + (((startpos - 1)*2.5)*boat_length))
+
+silly_model <- function(prior_data, sim){
+  prior_data %>%
+    mutate(sample_speed = mapply(mean = model$speed, sd= model$sd, rnorm, MoreArgs = list(n = 1))) %>%
+    mutate(finish_time = finish_distance / sample_speed) %>%
+    mutate(bump = ifelse(finish_time < lag(finish_time), 1, 0)) %>%
+    mutate(sim = sim) %>%
+    dplyr::select(startpos, bump, sim)
+}
+
+
+```
+
+```{r bayes_update_example, warning=FALSE,message=FALSE}
+library(Bolstad)
+
+
+get_bayes_speed <- function(data) {
+  observed_speeds <- data$speeds %>%
+    unlist() %>%
+    .[!is.na(.)]
+  
+  if(all(is.na(observed_speeds))) {
+    new_mean <- NA
+    new_sd <- NA
+  } else {
+    if(length(observed_speeds) == 1) {
+      posterior <- normnp(observed_speeds, sigma.x = data$sd, data$speed, data$sd, plot = FALSE)
+    } else if(length(observed_speeds) > 1) {
+      posterior <- normnp(observed_speeds, data$speed, data$sd, plot = FALSE)
+    }
+    new_mean <- posterior$mean
+    new_sd <- posterior$sd
+  }
+
+  df <- data.frame(post_speed = new_mean,
+                   post_sd = new_sd)
+  
+  data <- data %>%
+    cbind(df)
+}
+
+```
+
+```{r bayes_update_actual, warning=FALSE,message=FALSE}
+race_results <- cam_results %>%
+  filter(year == 2019) %>%
+  dplyr::select(year, college, crew, gender, race , norm_ps) %>%
+  spread(race, norm_ps) %>%
+  mutate(speeds = lapply(1:nrow(.), function(x) as.numeric(.[x,5:ncol(.)]))) %>%
+  dplyr::select(year, college, crew, gender, speeds)
+
+bumps_crews_2019 <- read.csv("../data/bumps.csv",
+                       stringsAsFactors = FALSE) %>%
+  rename_all(tolower) %>%
+  filter(year == 2018) %>%
+  mutate(endpos = startpos - rowSums(.[7:10], na.rm = TRUE)) %>%
+  dplyr::select(college, year, crew, gender, startpos = endpos) %>%
+  mutate(year = year + 1,
+         crew = ifelse(is.na(crew), 1, crew)) %>%
+  filter(startpos < 35) %>%
+  #mutate(startpos = startpos - 17) %>%
+  arrange(startpos) %>%
+  left_join(., race_results, by = c("year", "college", "crew", "gender")) %>%
+  merge(., model, by = c("startpos", "gender")) %>%
+  split(., f = list(.$startpos, .$gender)) %>%
+  lapply(., get_bayes_speed) %>%
+  do.call(rbind, .)
+
+```
+
+```{r}
+silly_model2 <- function(prior_data, sim){
+  prior_data %>%
+    mutate(sample_speed = mapply(mean = .$post_speed, sd= .$post_sd, rnorm, MoreArgs = list(n = 1))) %>%
+    mutate(finish_time = finish_distance / sample_speed) %>%
+    mutate(bump = ifelse(finish_time < lag(finish_time), 1, 0)) %>%
+    mutate(sim = sim) %>%
+    dplyr::select(startpos, college, gender, bump, sim)
+}
+
+div2 <- bumps_crews_2019 %>%
+  #mutate(post_speed = ifelse(is.na(post_speed), speed, post_speed),
+  #       post_sd = ifelse(is.na(post_sd), sd, post_sd)) %>%
+  lapply(1:10, silly_model2, prior_data = .) %>%
+  do.call(rbind, .) %>%
+  group_by(startpos) %>%
+  mutate(bump_chance = sum(bump)/max(sim)) %>%
+  dplyr::select(startpos, college, gender, bump_chance) %>%
+  unique()
+
+```
+

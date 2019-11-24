@@ -1,0 +1,162 @@
+---
+title: "Untitled"
+author: "Robert Hickman"
+date: "18 January 2019"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(rvest)
+library(magrittr)
+library(lubridate)
+```
+
+```{r}
+
+fairbairns_2019 <- "https://jcbc.jesus.cam.ac.uk/old/fairbairns/results.php" %>%
+  read_html()
+
+men_2019 <- fairbairns_2019 %>%
+  html_nodes(xpath = '//*[@id="content"]/table[6]') %>%
+      html_table() %>%
+      as.data.frame() %>%
+      `colnames<-`(c("position", "race_no", "crew", "time", "winner_diff", "half_time", "winner_half_diff")) %>%
+      dplyr::filter(position != "Position") %>%
+      mutate(year = 2019) %>%
+      mutate(gender = "M") %>%
+      select(position, crew, gender, time, year)
+women_2019 <- fairbairns_2019 %>%
+  html_nodes(xpath = '//*[@id="content"]/table[7]') %>%
+      html_table() %>%
+      as.data.frame() %>%
+      `colnames<-`(c("position", "race_no", "crew", "time", "winner_diff", "half_time", "winner_half_diff")) %>%
+      dplyr::filter(position != "Position") %>%
+      mutate(year = 2019) %>%
+      mutate(gender = "F") %>%
+      select(position, crew, gender, time, year)
+
+fairbairns_2019_data <- rbind(men_2019, women_2019)
+  
+  
+fairbairns_data <- paste0("https://jcbc.jesus.cam.ac.uk/old/fairbairns/archive/results.php?year=", 2010:2017) %>%
+  lapply(., function(year) {
+    men <- read_html(year) %>%
+      html_nodes(xpath = '//*[@id="content"]/table[3]') %>%
+      html_table() %>%
+      as.data.frame() %>%
+      `colnames<-`(c("position", "race_no", "crew", "time", "winner_diff", "half_time", "winner_half_diff")) %>%
+      dplyr::filter(position != "Position") %>%
+      mutate(year = as.numeric(gsub(".*=", "", year))+1) %>%
+      mutate(gender = "M") %>%
+      select(position, crew, gender, time, year)
+    women <- read_html(year) %>%
+      html_nodes(xpath = '//*[@id="content"]/table[4]') %>%
+      html_table() %>%
+      as.data.frame() %>%
+      `colnames<-`(c("position", "race_no", "crew", "time", "winner_diff", "half_time", "winner_half_diff")) %>%
+      dplyr::filter(position != "Position") %>%
+      mutate(year = as.numeric(gsub(".*=", "", year))+1) %>%
+      mutate(gender = "F") %>%
+      select(position, crew, gender, time, year)
+    all <- rbind(men, women)
+  }) %>%
+  do.call(rbind, .) %>%
+  rbind(., fairbairns_2019_data) %>%
+  mutate(Fairbairns_Name = gsub(" I.*| V.*", "", crew))  %>%
+  mutate(college = case_when(
+    grepl("Caius", Fairbairns_Name) ~ "Caius",
+    grepl("St Cat", Fairbairns_Name) ~ "Catz",
+    grepl("Christ's", Fairbairns_Name) ~ "Christs",
+    grepl("Churchill", Fairbairns_Name) ~ "Churchill",
+    grepl("Clare Hall", Fairbairns_Name) ~ "ClareHall",
+    grepl("Clare", Fairbairns_Name) ~ "Clare",
+    grepl("Corpus Christi", Fairbairns_Name) ~ "Corpus",
+    grepl("Darwin", Fairbairns_Name) ~ "Darwin",
+    grepl("Downing", Fairbairns_Name) ~ "Downing",
+    grepl("Emmanuel", Fairbairns_Name) ~ "Emma",
+    grepl("First and Third Trinity", Fairbairns_Name) ~ "FaT",
+    grepl("Fitzwilliam", Fairbairns_Name) ~ "Fitz",
+    grepl("Girton", Fairbairns_Name) ~ "Girton",
+    grepl("Homerton", Fairbairns_Name) ~ "Homerton",
+    grepl("Hughes Hall$", Fairbairns_Name) ~ "HughesHall",
+    Fairbairns_Name == "Hughes Hall/ Lucy Cavendish" ~ "HughesHall/LucyCav",
+    Fairbairns_Name == "Lucy Cavendish" ~ "LucyCav",
+    Fairbairns_Name == "Newnham" ~ "Newnham",
+    Fairbairns_Name == "Jesus" ~ "Jesus",
+    grepl("King", Fairbairns_Name) ~ "Kings",
+    grepl("Margaret$", Fairbairns_Name) ~ "Maggie",
+    grepl("^Magdalene", Fairbairns_Name) ~ "Magdalene",
+    grepl("Pembroke$", Fairbairns_Name) ~ "Pembroke",
+    Fairbairns_Name == "Queen's" ~ "Queens",
+    Fairbairns_Name == "Queens" ~ "Queens",
+    grepl("Peterhouse", Fairbairns_Name) ~ "Peterhouse",
+    grepl("Robinson", Fairbairns_Name) ~ "Robinson",
+    Fairbairns_Name == "Selwyn" ~ "Selwyn",
+    grepl("Sidney Sussex", Fairbairns_Name) ~ "Sidney",
+    grepl("St Edmund's", Fairbairns_Name) ~ "Eddies",
+    grepl("Trinity Hall", Fairbairns_Name) ~ "TitHall",
+    grepl("Wolfson", Fairbairns_Name) ~ "Wolfson",
+    grepl("Wolfson/Darwin", Fairbairns_Name) ~ "Wolfson/Darwin"
+  )) %>%
+  filter(!is.na(college)) %>%
+  mutate(seconds = as.numeric(ms(time))) %>%
+  mutate(crew = utils:::.roman2numeric(trimws(gsub("(.*)( I.*| V.*)", "\\2", crew)))) %>%
+  mutate(crew = ifelse(is.na(crew), 1, crew)) %>%
+  select(year, college, crew, gender, seconds) %>%
+  mutate(race = "Fairbairns")
+
+saveRDS(fairbairns_data, "fairbairns_results.rds")
+
+
+```
+
+```{r}
+bumps_data <- read.csv("C:/Users/WS-Guest/Documents/rob_r/RoweR/bumps.csv",
+                       stringsAsFactors = FALSE) %>%
+  dplyr::filter(Year > 2013, Gender == "M") %>%
+  setDT() %>%
+  melt.data.table(id.vars = c("College", "Crew", "Year", "Gender", "StartPos"),
+                 value.name = "change",
+                 variable.name = "day") %>%
+  .[is.na(change), change := 0] %>%
+  .[, cum_change := cumsum(change), by = c("College", "Crew", "Year")] %>%
+  .[, day_start_pos := StartPos - cum_change + change] %>%
+  .[day_start_pos < 30]
+
+college_names <- read.csv("C:/Users/WS-Guest/Documents/rob_r/RoweR/college_names.csv",
+                       stringsAsFactors = FALSE)
+
+fairbairns_data %<>%
+  left_join(.,
+            select(college_names, College, Fairbairns_Name),
+            by = "Fairbairns_Name") %>%
+  dplyr::filter(!is.na(College)) %>%
+  mutate(Crew = utils:::.roman2numeric(trimws(gsub("(.*)( I.*| V.*)", "\\2", crew)))) %>%
+  select(College, Crew, Year = year, f_time = time)
+  
+bumps_data %<>% left_join(., fairbairns_data, by = c("College", "Crew", "Year"))
+
+bumps_data$f_time <- as.numeric(lubridate::ms(bumps_data$f_time))
+```
+
+```{r}
+bumps_data2 <- bumps_data %>%
+  setDT() %>%
+  .[order(Year, day, StartPos)] %>%
+  .[, f_time_diff := f_time - lead(f_time), by = c("Year", "day")] %>%
+  .[!is.na(f_time_diff)] %>%
+  .[change < 0, bumped := 1] %>%
+  .[change >= 0, bumped := 0]
+
+binomial_smooth <- function(...) {
+  geom_smooth(method = "glm", method.args = list(family = "binomial"), ...)
+}
+
+p <- ggplot(data = bumps_data2, aes(y = bumped, x = f_time_diff)) +
+  geom_point(alpha = 0.4) +
+  xlab("second slower at Fairbairns than Chasing Boat") +
+  ggtitle("Whether Div2 and Above Boats get bumped or not based on Previous Fairbairns Results of Them/Chasing Boat") +
+  binomial_smooth()
+```
+

@@ -1,0 +1,109 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r}
+library(rvest)
+library(tidyverse)
+library(lubridate)
+```
+
+```{r}
+rowclock <- "http://www.rowclock.com/Results/Index" %>%
+  read_html()
+
+wh2h <- rowclock %>%
+  html_nodes("td:nth-child(1)") %>%
+  html_text() %>%
+  grep("Winter Head to Head|Winter H2H|Winter Head 2 Head", .)
+
+#download the files
+rowclock %>%
+  html_nodes(".table a:nth-child(1)") %>%
+  .[wh2h] %>%
+  html_attr("href") %>%
+  paste0("http://www.rowclock.com", .) %>%
+  lapply(., function(link) 
+    read_html(link) %>%
+      html_nodes(".btn-lg") %>%
+      html_attr("href") %>%
+      paste0("http://www.rowclock.com", .) %>%
+      download.file(., 
+                    destfile = file.path("../data", paste0("h2h", gsub(".*=", "", .), ".csv")),
+                    mode = "wb")
+  )
+
+```
+
+```{r}
+wh2h_results <- dir("./data") %>%
+  .[grep("h2h[0-9]", .)] %>%
+  file.path("./data", .) %>%
+  lapply(., function(file) 
+    read.csv(file, stringsAsFactors = FALSE) %>%
+      select(., -c(Division, Handicap, Penalty, Position, Number, VetClass, BoatNumber)) %>%
+      rename_at(vars(contains('End')), funs(sub('End', 'Finish', .)))
+  ) %>%
+  bind_rows(.id = "year") %>%
+  mutate(year = as.numeric(year) + 2015) %>%
+  filter(grepl("Lent", Category)) %>%
+  filter(BoatType == "8+") %>%
+  mutate(college = case_when(
+    grepl("Caius", Club) ~ "Caius",
+    grepl("Christ's", Club) ~ "Christs",
+    grepl("Churchill", Club) ~ "Churchill",
+    grepl("Clare Hall", Club) ~ "ClareHall",
+    grepl("Clare", Club) ~ "Clare",
+    grepl("Corpus", Club) ~ "Corpus",
+    grepl("Darwin", Club) ~ "Darwin",
+    grepl("Downing", Club) ~ "Downing",
+    grepl("Emmanuel", Club) ~ "Emma",
+    grepl("First", Club) ~ "FaT",
+    grepl("Fitzwilliam", Club) ~ "Fitz",
+    grepl("Girton", Club) ~ "Girton",
+    grepl("HCBC|Homerton", Club) ~ "Homerton",
+    grepl("Hall\\/Lucy|Cavendish\\/Hughes", Club) ~ "HughesHall/LucyCav",
+    grepl("Jesus", Club) ~ "Jesus",
+    grepl("KCBC|King", Club) ~ "Kings",
+    grepl("Margaret|LMBC", Club) ~ "Maggie",
+    grepl("Magdalene", Club) ~ "Magdalene",
+    grepl("Murray", Club) ~ "Medwards",
+    grepl("Newnham", Club) ~ "Newnham",
+    grepl("Pembroke", Club) ~ "Pembroke",
+    grepl("Queen", Club) ~ "Queens",
+    grepl("Robinson", Club) ~ "Robinson",
+    grepl("SCCBC|Catharine", Club) ~ "Catz",
+    grepl("Selwyn", Club) ~ "Selwyn",
+    grepl("Sidney", Club) ~ "Sidney",
+    grepl("Edmund|Eddy", Club) ~ "Eddies",
+    grepl("Trinity Hall", Club) ~ "TitHall",
+    grepl("Wolfson", Club) ~ "Wolfson"
+  )) %>%
+  mutate(leg1 = as.numeric(hms(Leg.1.Finish)),
+         leg2 = as.numeric(hms(Leg.2.Finish))) %>%
+  filter(leg1 > 0 & leg2 > 0) %>%
+  select(year, college, Gender, leg1, leg2, Name) %>%
+  mutate(crew = gsub("(.*)([0-9].*)", "\\2", Name)) %>%
+  mutate(crew = as.numeric(gsub(" \\Cam.*|st .*", "", crew))) %>%
+  mutate(crew = ifelse(is.na(crew) & 
+                         grepl("Steady|Christ's Men A|Darwin Women|Lucy/Hughes|Clare Hall Women's Team", Name), 1, crew)) %>%
+  filter(!is.na(crew)) %>%
+  mutate(gender = case_when(
+    Gender == "Male" ~ "M",
+    Gender == "Female" ~ "F"
+  )) %>%
+  mutate(race = "Winter Head 2 Head") %>%
+  select(year, college, crew, gender, leg1, leg2, race) %>%
+  reshape2::melt(id.vars = c("year", "college", "crew", "gender", "race"),
+                 value.name = "seconds", variable.name = "leg")
+  
+#saveRDS(wh2h_results, ".data/wh2h_results.rds")
+
+```
+

@@ -1,0 +1,198 @@
+---
+title: "Blog Post 1 - Validating Data and Priors"
+output: html_document
+---
+
+```{r libraries, warning=FALSE,message=FALSE}
+library(tidyverse)
+library(data.table)
+library(GGally)
+library(ggrepel)
+library(MASS)
+rm(list=ls())
+```
+
+
+```{r load_data, warning=FALSE,message=FALSE}
+calc_paul <- function(result, result_type, distance) {
+  if(result_type == "seconds") {
+    race_split <- 500 / (distance / result)
+  } else if(result_type == "speed") {
+    race_split <- 500 / result
+  } else {
+    warning("result type not recognised")
+  }
+  
+  more_secs <- (log(distance/2000)/log(2)) * 5
+  split_2k <- race_split - more_secs
+  speed_2k <- 500 / split_2k
+  return(speed_2k)
+}
+
+```
+
+```{r}
+
+cam_results <- readRDS("../data/clean_results/cam_race_results.rds") %>%
+  setDT() %>%
+  .[, paul_speed := calc_paul(seconds, "seconds", distance)] %>%
+  .[!is.na(leg), race := paste(race, leg)] %>%
+  .[, norm_ps := paul_speed / max(paul_speed), by = c("year", "gender", "race", "leg")]
+
+bumps_data <- read.csv("../data/bumps.csv",
+                       stringsAsFactors = FALSE) %>%
+  rename_all(tolower) %>%
+  dplyr::select(year, college, crew, gender, startpos) %>%
+  setDT() %>%
+  .[is.na(crew), crew := 1] %>%
+  left_join(., cam_results, by = c("year", "college", "crew", "gender")) %>%
+  filter(!is.na(norm_ps))
+
+models <- bumps_data %>%
+  dplyr::select(startpos, norm_ps, race, year, gender) %>%
+  split(., f = list(.$race, .$year, .$gender)) %>%
+  .[sapply(., nrow)>0] %>%
+  lapply(., function(race_data) {
+    model <- lm(norm_ps ~ startpos, data = race_data)
+    fastest_crew_pred <- stats::predict.lm(model, newdata = data.frame(startpos = 1))
+    df <- data.frame(race = unique(race_data$race),
+                     year = unique(race_data$year),
+                     gender = unique(race_data$gender),
+                     multiplier = fastest_crew_pred)
+  }) %>%
+  do.call(rbind, .)
+
+bumps_data <- bumps_data %>%
+  left_join(., models, by = c("race", "year", "gender")) %>%
+  mutate(racenorm_ps = norm_ps / multiplier)
+
+p1 <- bumps_data %>%
+  filter(startpos < 32) %>%
+  ggplot(data = ., aes(x = startpos, y = racenorm_ps, colour = race)) +
+  geom_point(alpha = 0.5) +
+  stat_smooth(method = "lm") +
+  #facet_grid(year ~ gender)
+  facet_wrap(~gender)
+
+p2 <- bumps_data %>%
+  filter(startpos < 32) %>%
+  ggplot(data = ., aes(x = startpos, y = racenorm_ps)) +
+  geom_point(alpha = 0.5) +
+  stat_smooth(method = "lm") +
+  facet_wrap(~gender)
+
+
+```
+
+```{r}
+p <- bumps_data %>%
+    filter(year > 2015 & gender == "M" & startpos < 32) %>%
+    ggplot(., aes(x = startpos, y = racenorm_ps)) +
+    geom_point(alpha = 0.5) +
+    stat_smooth(method = "lm") +
+    theme_minimal()
+
+model <- bumps_data %>%
+  filter(year > 2015 & gender == "M" & startpos < 32) %>%
+  lm(startpos ~ racenorm_ps, data = .)
+
+predictions2 <- lapply(1:31, function(position) {
+  prediction <- inverse.predict.lm(model, position)
+  mean <- prediction$Prediction
+  confidence <- prediction$Confidence
+  df <- data.frame(position = position,
+                   speed = mean,
+                   conf = confidence)
+}) %>%
+  do.call(rbind, .) 
+
+```
+
+
+bumps_data <- read.csv("../data/bumps.csv",
+                       stringsAsFactors = FALSE) %>%
+  rename_all(tolower) %>%
+  setDT() %>%
+  .[is.na(crew), crew := 1] %>%
+  melt.data.table(id.vars = c("competition", "college", "year", "crew", "gender", "startpos"),
+                  value.name = "bump", variable.name = "day") %>%
+  .[order(year, startpos, day)] %>%
+  .[is.na(bump), bump := 0] %>%
+  .[, campaign := cumsum(bump), by = c("competition", "college", "year", "crew", "gender")] %>%
+  .[, dend_pos := startpos - campaign] %>%
+  .[, dstart_pos := startpos - lag(campaign), by = c("competition", "college", "year", "crew", "gender")] %>%
+  .[is.na(dstart_pos), dstart_pos := startpos] %>%
+  left_join(., cam_results, by = c("year", "college", "crew", "gender")) %>%
+  setDT() %>%
+  .[order(year, competition, gender, day, dstart_pos)] %>%
+  .[!is.na(paul_speed)]
+
+
+p <- bumps_data %>%
+  filter(day == "day4") %>%
+  filter(year == 2018 & gender == "M") %>%
+  ggplot(., aes(x = startpos, y = paul_speed, colour = race)) +
+  geom_point(alpha = 0.5) +
+  stat_smooth(method = "lm") +
+  theme_minimal() +
+  xlab("assumed_speed_order") +
+  ylab("speed")
+```
+
+```{r}
+upperfun <- function(data,mapping){
+  ggplot(data = data, mapping = mapping)+
+    geom_density2d()+
+    scale_x_continuous(limits = c(-1,1))+
+    scale_y_continuous(limits = c(-1,1))
+}   
+
+lowerfun <- function(data,mapping){
+  ggplot(data = data, mapping = mapping)+
+    geom_point(alpha = 0.5)+
+    scale_x_continuous(limits = c(-1,1))+
+    scale_y_continuous(limits = c(-1,1))
+}  
+
+#need to remove the duplicates in cam race results
+self_correlate <- cam_results %>%
+  .[, mean_diff := paul_speed - mean(paul_speed), by = c("year", "race", "gender")] %>%
+  .[, c("year", "college", "crew", "gender", "race", "mean_diff")] %>%
+  dcast(year + college + crew + gender ~ race, value.var = "mean_diff") %>%
+  ggpairs(., mapping=ggplot2::aes(colour = factor(year)),
+          columns = 5:ncol(.),
+          upper = list(continuous = wrap(upperfun)),
+          lower = list(continuous = wrap(lowerfun)))
+  
+```
+
+```{r}
+darwin <- cam_results %>%
+  filter(year == 2019 & college == "Darwin" & crew == 1 & gender == "M") %>%
+  mutate(startpos = 29)
+
+p <- bumps_data %>%
+  filter(year > 2015 & gender == "M" & race %in% c("Newnham Short Course", "Fairbairns") & day == "day4") %>%
+  ggplot(., aes(x = startpos, y = norm_ps)) +
+  geom_point(aes(colour = year), alpha = 0.2) +
+  geom_point(data = filter(bumps_data, year > 2015 & gender == "M" & race %in% c("Newnham Short Course", "Fairbairns") & day == "day4" & campaign >= 2), aes(x = startpos, y = paul_speed, colour = year)) +
+  scale_colour_gradient(low = "darkred", high = "darkblue") +
+  geom_point(data = darwin, shape = 21, fill = "blue", colour = "red", size = 2) +
+  geom_text_repel(data = darwin, label = "darwin m1 2019", colour = "darkblue") +
+  #facet_grid(gender~year) +
+  #facet_wrap(year~race) +
+  #facet_wrap(~gender) +
+  xlab("Bumps Starting Position") +
+  ylab("Paul's Law Adjust Speed (m/s)") +
+  ggtitle("historic bumps starting position against cam race speeds for Lent crews",
+          subtitle = "data 2016-2018, race speeds adjusted via Paul's law") +
+  stat_smooth(method = "lm") +
+  theme_minimal()
+
+```
+
+```{r}
+model <- bumps_data %>%
+
+```
+

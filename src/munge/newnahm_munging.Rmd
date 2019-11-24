@@ -1,0 +1,56 @@
+---
+title: "Untitled"
+author: "Robert Hickman"
+date: "28 January 2019"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(lubridate)
+
+```
+
+```{r}
+recent <- read.csv("./data/newnham_recent.csv",
+                   stringsAsFactors = FALSE) %>%
+  select(Year, College = Club, Crew, Gender, Time) %>%
+  mutate(Time = ms(Time))
+
+old <- read.csv("./data/newnham_old.csv",
+                stringsAsFactors = FALSE) %>%
+  mutate(Time = case_when(
+    Year == 2011 ~ ms(Time),
+    Year != 2011 ~ hms(Time)
+  ))
+
+new <- read.csv("./data/newnham_2019.csv",
+                stringsAsFactors = FALSE) %>%
+  mutate(Time = ms(Time))
+ 
+newnham_full <- do.call("rbind", list(old, recent, new)) %>%
+  mutate(seconds = as.numeric(Time)) %>%
+  mutate(college = case_when(
+    College == "St Catz" ~ "Catz",
+    College == "Hughes Hall/Lucy Cav" ~ "HughesHall/LucyCav",
+    College == "Hughes Hall" ~ "HughesHall",
+    College == "Medward" ~ "Medwards",
+    College == "Tit Hall" ~ "TitHall",
+    College == "St Edmunds" ~ "Eddies",
+    College == "Clare Hall" ~ "ClareHall",
+    College == "Cav" ~ "LucyCav",
+    College == "LMBC" ~ "Maggie"
+  )) %>%
+  mutate(college = ifelse(is.na(college), College, college)) %>%
+  select(year = Year, college, crew = Crew, gender = Gender, seconds) %>%
+  mutate(gender = gsub("W", "F", gender)) %>%
+  mutate(race = "Newnham Short Course")
+
+p <- ggplot(data = newnham_full, aes(x = Year, y = seconds)) +
+  geom_point(alpha = 0.5)
+
+saveRDS(newnham_full, "newnham_results.rds")
+```
+
+
+
